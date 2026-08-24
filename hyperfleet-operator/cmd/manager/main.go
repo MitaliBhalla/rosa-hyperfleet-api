@@ -43,6 +43,7 @@ import (
 	"github.com/openshift-online/rosa-hyperfleet-api/hyperfleet-operator/internal/dynamo/statusstream"
 	"github.com/openshift-online/rosa-hyperfleet-api/hyperfleet-operator/internal/oidc"
 	"github.com/openshift-online/rosa-hyperfleet-api/hyperfleet-operator/internal/render"
+	"github.com/openshift-online/rosa-hyperfleet-api/hyperfleet-operator/internal/silence"
 )
 
 var setupLog = ctrl.Log.WithName("setup")
@@ -222,6 +223,21 @@ func main() {
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "Failed to create controller", "controller", "oidcconfig")
 		os.Exit(1)
+	}
+
+	alertmanagerURL := os.Getenv("ALERTMANAGER_URL")
+	if alertmanagerURL != "" {
+		setupLog.Info("Registering cluster silence reconciler", "alertmanagerURL", alertmanagerURL)
+		if err := (&controller.SilenceReconciler{
+			Client:                  mgr.GetClient(),
+			SilenceClient:           silence.NewAlertmanagerClient(alertmanagerURL, nil),
+			MaxConcurrentReconciles: maxConcurrentReconciles,
+		}).SetupWithManager(mgr); err != nil {
+			setupLog.Error(err, "Failed to create controller", "controller", "cluster-silence")
+			os.Exit(1)
+		}
+	} else {
+		setupLog.Info("ALERTMANAGER_URL not set; cluster silence reconciler disabled")
 	}
 
 	if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {
