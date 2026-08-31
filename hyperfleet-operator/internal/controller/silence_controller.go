@@ -18,7 +18,6 @@ package controller
 
 import (
 	"context"
-	"fmt"
 	"time"
 
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -62,6 +61,9 @@ func (r *SilenceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 
 	identity := silence.IdentityFromCluster(&cluster)
 	intent := silence.IntentForCluster(&cluster)
+	if intent == nil && cluster.DeletionTimestamp.IsZero() && cluster.Status.Phase != hyperfleetv1alpha1.ClusterPhaseReady {
+		log.V(1).Info("no silence intent for cluster phase", "phase", cluster.Status.Phase, "cluster", cluster.Name)
+	}
 
 	existing, err := r.SilenceClient.List(ctx, identity)
 	if err != nil {
@@ -87,7 +89,8 @@ func (r *SilenceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 				continue
 			}
 			if err := r.SilenceClient.Expire(ctx, s.ID); err != nil {
-				return ctrl.Result{RequeueAfter: silenceAPIRetryDelay}, fmt.Errorf("expire duplicate silence: %w", err)
+				log.Error(err, "failed to expire duplicate silence", "cluster", cluster.Name, "silenceID", s.ID)
+				return ctrl.Result{RequeueAfter: silenceAPIRetryDelay}, nil
 			}
 		}
 	}
@@ -98,25 +101,30 @@ func (r *SilenceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		}
 		if !silence.MatchesReason(s, intent.Reason) {
 			if err := r.SilenceClient.Expire(ctx, s.ID); err != nil {
-				return ctrl.Result{RequeueAfter: silenceAPIRetryDelay}, fmt.Errorf("expire stale silence: %w", err)
+				log.Error(err, "failed to expire stale silence", "cluster", cluster.Name, "silenceID", s.ID)
+				return ctrl.Result{RequeueAfter: silenceAPIRetryDelay}, nil
 			}
 		}
 	}
 
 	if matched != nil {
+		// Observatorium requires silence replacement when renewing; can't update in place like pure Alertmanager.
 		if silence.NeedsRenewal(*matched, now) {
 			if err := r.SilenceClient.Expire(ctx, matched.ID); err != nil {
-				return ctrl.Result{RequeueAfter: silenceAPIRetryDelay}, fmt.Errorf("expire silence for renewal: %w", err)
+				log.Error(err, "failed to expire silence for renewal", "cluster", cluster.Name, "silenceID", matched.ID)
+				return ctrl.Result{RequeueAfter: silenceAPIRetryDelay}, nil
 			}
 			if _, err := r.createSilence(ctx, identity, intent.Reason, now); err != nil {
-				return ctrl.Result{RequeueAfter: silenceAPIRetryDelay}, fmt.Errorf("renew silence: %w", err)
+				log.Error(err, "failed to renew silence", "cluster", cluster.Name)
+				return ctrl.Result{RequeueAfter: silenceAPIRetryDelay}, nil
 			}
 		}
 		return ctrl.Result{RequeueAfter: silence.RequeueInterval}, nil
 	}
 
 	if _, err := r.createSilence(ctx, identity, intent.Reason, now); err != nil {
-		return ctrl.Result{RequeueAfter: silenceAPIRetryDelay}, fmt.Errorf("create silence: %w", err)
+		log.Error(err, "failed to create silence", "cluster", cluster.Name)
+		return ctrl.Result{RequeueAfter: silenceAPIRetryDelay}, nil
 	}
 	return ctrl.Result{RequeueAfter: silence.RequeueInterval}, nil
 }

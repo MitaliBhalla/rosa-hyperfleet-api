@@ -64,7 +64,7 @@ func TestSilenceReconcilerProvisioning(t *testing.T) {
 		t.Fatalf("reconcile: %v", err)
 	}
 
-	identity := silence.ClusterIdentity{Namespace: testNS, Name: clusterName, Cluster: clusterName}
+	identity := silence.ClusterIdentity{Namespace: testNS, Name: clusterName}
 	silences, err := fakeSilence.List(ctx, identity)
 	if err != nil {
 		t.Fatalf("list: %v", err)
@@ -75,7 +75,7 @@ func TestSilenceReconcilerProvisioning(t *testing.T) {
 	if !silence.MatchesReason(silences[0], silence.ReasonInstalling) {
 		t.Fatalf("unexpected comment: %s", silences[0].Comment)
 	}
-	if len(silences[0].Matchers) != 4 {
+	if len(silences[0].Matchers) != 3 {
 		t.Fatalf("expected install exemption matcher, got %d matchers", len(silences[0].Matchers))
 	}
 }
@@ -107,7 +107,7 @@ func TestSilenceReconcilerReadyExpiresSilence(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	identity := silence.ClusterIdentity{Namespace: testNS, Name: clusterName, Cluster: clusterName}
+	identity := silence.ClusterIdentity{Namespace: testNS, Name: clusterName}
 	if _, err := fakeSilence.Create(ctx, silence.BuildPostableSilence(identity, silence.ReasonInstalling, time.Now().UTC(), silence.DefaultTTL)); err != nil {
 		t.Fatalf("seed silence: %v", err)
 	}
@@ -166,7 +166,7 @@ func TestSilenceReconcilerDeleting(t *testing.T) {
 		t.Fatalf("reconcile: %v", err)
 	}
 
-	identity := silence.ClusterIdentity{Namespace: testNS, Name: clusterName, Cluster: clusterName}
+	identity := silence.ClusterIdentity{Namespace: testNS, Name: clusterName}
 	silences, err := fakeSilence.List(ctx, identity)
 	if err != nil {
 		t.Fatalf("list: %v", err)
@@ -177,7 +177,7 @@ func TestSilenceReconcilerDeleting(t *testing.T) {
 	if !silence.MatchesReason(silences[0], silence.ReasonDeleting) {
 		t.Fatalf("unexpected comment: %s", silences[0].Comment)
 	}
-	if len(silences[0].Matchers) != 3 {
+	if len(silences[0].Matchers) != 2 {
 		t.Fatalf("expected no install exemption, got %d matchers", len(silences[0].Matchers))
 	}
 }

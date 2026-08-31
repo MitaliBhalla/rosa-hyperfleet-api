@@ -72,6 +72,5 @@ func silenceMatchesIdentity(s GettableSilence, identity ClusterIdentity) bool {
 		}
 	}
 	return has["namespace"] == identity.Namespace &&
-		has["name"] == identity.Name &&
-		has["cluster"] == identity.Cluster
+		has["name"] == identity.Name
 }

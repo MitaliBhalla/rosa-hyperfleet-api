@@ -57,20 +57,20 @@ func TestBuildPostableSilenceInstallExemption(t *testing.T) {
 	t.Parallel()
 
 	now := time.Date(2026, 8, 24, 10, 0, 0, 0, time.UTC)
-	identity := ClusterIdentity{Namespace: "cluster-abc", Name: "my-cluster", Cluster: "my-cluster"}
+	identity := ClusterIdentity{Namespace: "cluster-abc", Name: "my-cluster"}
 
 	install := BuildPostableSilence(identity, ReasonInstalling, now, DefaultTTL)
-	if len(install.Matchers) != 4 {
-		t.Fatalf("expected 4 matchers, got %d", len(install.Matchers))
+	if len(install.Matchers) != 3 {
+		t.Fatalf("expected 3 matchers, got %d", len(install.Matchers))
 	}
-	exempt := install.Matchers[3]
+	exempt := install.Matchers[2]
 	if exempt.Name != "alertname" || exempt.Value != InstallExemptAlert || exempt.IsEqual {
 		t.Fatalf("unexpected install exemption matcher: %+v", exempt)
 	}
 
 	deleteSilence := BuildPostableSilence(identity, ReasonDeleting, now, DefaultTTL)
-	if len(deleteSilence.Matchers) != 3 {
-		t.Fatalf("expected 3 matchers for delete, got %d", len(deleteSilence.Matchers))
+	if len(deleteSilence.Matchers) != 2 {
+		t.Fatalf("expected 2 matchers for delete, got %d", len(deleteSilence.Matchers))
 	}
 }
 
@@ -100,7 +100,7 @@ func TestFakeClientCreateAndExpire(t *testing.T) {
 
 	ctx := t.Context()
 	client := NewFakeClient()
-	identity := ClusterIdentity{Namespace: "cluster-1", Name: "c1", Cluster: "c1"}
+	identity := ClusterIdentity{Namespace: "cluster-1", Name: "c1"}
 	now := time.Now().UTC()
 
 	id, err := client.Create(ctx, BuildPostableSilence(identity, ReasonInstalling, now, DefaultTTL))

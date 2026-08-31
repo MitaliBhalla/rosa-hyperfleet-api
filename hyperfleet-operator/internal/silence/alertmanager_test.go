@@ -65,7 +65,7 @@ func TestAlertmanagerClientRoundTrip(t *testing.T) {
 	defer server.Close()
 
 	client := NewAlertmanagerClient(server.URL, server.Client())
-	identity := ClusterIdentity{Namespace: "cluster-1", Name: "c1", Cluster: "c1"}
+	identity := ClusterIdentity{Namespace: "cluster-1", Name: "c1"}
 	now := time.Now().UTC()
 	ctx := context.Background()
 

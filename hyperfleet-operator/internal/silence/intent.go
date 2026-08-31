@@ -37,7 +37,6 @@ func IdentityFromCluster(cluster *hyperfleetv1alpha1.Cluster) ClusterIdentity {
 	return ClusterIdentity{
 		Namespace: cluster.Namespace,
 		Name:      cluster.Name,
-		Cluster:   cluster.Name,
 	}
 }
 
@@ -46,7 +45,6 @@ func BuildPostableSilence(identity ClusterIdentity, reason Reason, now time.Time
 	matchers := []Matcher{
 		{Name: "namespace", Value: identity.Namespace, IsEqual: true},
 		{Name: "name", Value: identity.Name, IsEqual: true},
-		{Name: "cluster", Value: identity.Cluster, IsEqual: true},
 	}
 	if reason == ReasonInstalling {
 		matchers = append(matchers, Matcher{
