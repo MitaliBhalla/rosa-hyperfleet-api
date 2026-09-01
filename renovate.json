@@ -87,10 +87,17 @@
       ]
     },
     {
+      "description": "gobwas/glob v1 breaks golangci-lint build in hack/tools",
+      "matchManagers": ["gomod"],
+      "matchPackageNames": ["github.com/gobwas/glob"],
+      "matchUpdateTypes": ["major"],
+      "enabled": false
+    },
+    {
       "description": "Sync all module go.mod/go.sum after Go updates (ci/prow/verify)",
       "matchManagers": ["gomod"],
       "postUpgradeTasks": {
-        "commands": ["make mod-tidy"],
+        "commands": ["go mod tidy"],
         "executionMode": "branch",
         "fileFilters": ["**/go.mod", "**/go.sum"]
       }
