@@ -46,14 +46,14 @@ type SilenceStatus struct {
 
 // GettableSilence is an Alertmanager v2 silence returned from the API.
 type GettableSilence struct {
-	ID        string          `json:"id"`
-	Status    SilenceStatus   `json:"status"`
-	UpdatedAt time.Time       `json:"updatedAt"`
-	Matchers  []Matcher       `json:"matchers"`
-	StartsAt  time.Time       `json:"startsAt"`
-	EndsAt    time.Time       `json:"endsAt"`
-	CreatedBy string          `json:"createdBy"`
-	Comment   string          `json:"comment"`
+	ID        string        `json:"id"`
+	Status    SilenceStatus `json:"status"`
+	UpdatedAt time.Time     `json:"updatedAt"`
+	Matchers  []Matcher     `json:"matchers"`
+	StartsAt  time.Time     `json:"startsAt"`
+	EndsAt    time.Time     `json:"endsAt"`
+	CreatedBy string        `json:"createdBy"`
+	Comment   string        `json:"comment"`
 }
 
 // ClusterIdentity labels used to scope silences to a hosted cluster.

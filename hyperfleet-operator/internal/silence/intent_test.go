@@ -25,9 +25,9 @@ func TestIntentForCluster(t *testing.T) {
 	}
 
 	tests := []struct {
-		name   string
+		name    string
 		cluster *hyperfleetv1alpha1.Cluster
-		want   *Intent
+		want    *Intent
 	}{
 		{"waiting for placement", cluster(hyperfleetv1alpha1.ClusterPhaseWaitingForPlacement, false), &Intent{Reason: ReasonInstalling}},
 		{"provisioning", cluster(hyperfleetv1alpha1.ClusterPhaseProvisioning, false), &Intent{Reason: ReasonInstalling}},
