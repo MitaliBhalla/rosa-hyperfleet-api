@@ -94,15 +94,6 @@
       "enabled": false
     },
     {
-      "description": "Sync all module go.mod/go.sum after Go updates (ci/prow/verify)",
-      "matchManagers": ["gomod"],
-      "postUpgradeTasks": {
-        "commands": ["go mod tidy"],
-        "executionMode": "branch",
-        "fileFilters": ["**/go.mod", "**/go.sum"]
-      }
-    },
-    {
       "description": "Batch + automerge Konflux Tekton reference updates when Prow + Konflux pass",
       "matchManagers": ["tekton"],
       "matchUpdateTypes": ["patch", "minor", "pin", "digest"],
