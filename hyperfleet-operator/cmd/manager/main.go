@@ -227,7 +227,10 @@ func main() {
 
 	alertmanagerURL := os.Getenv("ALERTMANAGER_URL")
 	if alertmanagerURL != "" {
-		setupLog.Info("Registering cluster silence reconciler", "alertmanagerURL", alertmanagerURL)
+		// ALERTMANAGER_URL is the Alertmanager v2 API base URL (for example
+		// https://alertmanager.example.com). When set, the cluster silence
+		// reconciler is registered; when unset, lifecycle silencing is disabled.
+		setupLog.Info("Registering cluster silence reconciler")
 		if err := (&controller.SilenceReconciler{
 			Client:                  mgr.GetClient(),
 			SilenceClient:           silence.NewAlertmanagerClient(alertmanagerURL, nil),

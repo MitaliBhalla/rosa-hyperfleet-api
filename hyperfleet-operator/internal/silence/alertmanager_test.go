@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -28,7 +29,9 @@ func TestAlertmanagerClientRoundTrip(t *testing.T) {
 					out = append(out, s)
 				}
 			}
-			_ = json.NewEncoder(w).Encode(out)
+			if err := json.NewEncoder(w).Encode(out); err != nil {
+				t.Errorf("encode list response: %v", err)
+			}
 		case r.Method == http.MethodPost && r.URL.Path == "/api/v2/silences":
 			var body PostableSilence
 			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
@@ -47,7 +50,9 @@ func TestAlertmanagerClientRoundTrip(t *testing.T) {
 				CreatedBy: body.CreatedBy,
 				Comment:   body.Comment,
 			}
-			_ = json.NewEncoder(w).Encode(map[string]string{"silenceID": id})
+			if err := json.NewEncoder(w).Encode(map[string]string{"silenceID": id}); err != nil {
+				t.Errorf("encode create response: %v", err)
+			}
 		case r.Method == http.MethodDelete:
 			id := r.URL.Path[len("/api/v2/silence/"):]
 			s, ok := store[id]
@@ -91,5 +96,42 @@ func TestAlertmanagerClientRoundTrip(t *testing.T) {
 	}
 	if len(silences) != 0 {
 		t.Fatalf("expected no active silences, got %+v", silences)
+	}
+}
+
+func TestAlertmanagerClientCreateError(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "boom", http.StatusInternalServerError)
+	}))
+	defer server.Close()
+
+	client := NewAlertmanagerClient(server.URL, server.Client())
+	identity := ClusterIdentity{Namespace: "cluster-1", Name: "c1"}
+	_, err := client.Create(context.Background(), BuildPostableSilence(identity, ReasonInstalling, time.Now().UTC(), DefaultTTL))
+	if err == nil {
+		t.Fatal("expected create error")
+	}
+	if !strings.Contains(err.Error(), "500") {
+		t.Fatalf("expected status in error, got %v", err)
+	}
+}
+
+func TestAlertmanagerClientExpireNotFound(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.NotFound(w, r)
+	}))
+	defer server.Close()
+
+	client := NewAlertmanagerClient(server.URL, server.Client())
+	err := client.Expire(context.Background(), "missing")
+	if err == nil {
+		t.Fatal("expected expire error")
+	}
+	if !strings.Contains(err.Error(), "404") {
+		t.Fatalf("expected status in error, got %v", err)
 	}
 }

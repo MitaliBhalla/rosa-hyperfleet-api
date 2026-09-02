@@ -25,11 +25,48 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	hyperfleetv1alpha1 "github.com/openshift-online/rosa-hyperfleet-api/api/v1alpha1"
 	"github.com/openshift-online/rosa-hyperfleet-api/hyperfleet-operator/internal/silence"
 )
+
+func newSilenceReconciler(t *testing.T, cluster *hyperfleetv1alpha1.Cluster, fakeSilence *silence.FakeClient, clock time.Time) *SilenceReconciler {
+	t.Helper()
+
+	scheme := runtime.NewScheme()
+	if err := hyperfleetv1alpha1.AddToScheme(scheme); err != nil {
+		t.Fatalf("add scheme: %v", err)
+	}
+
+	return &SilenceReconciler{
+		Client:        fake.NewClientBuilder().WithScheme(scheme).WithObjects(cluster).WithStatusSubresource(cluster).Build(),
+		SilenceClient: fakeSilence,
+		Clock:         func() time.Time { return clock },
+	}
+}
+
+func reconcileCluster(t *testing.T, reconciler *SilenceReconciler, namespace, name string) {
+	t.Helper()
+	if _, err := reconciler.Reconcile(context.Background(), reconcile.Request{
+		NamespacedName: types.NamespacedName{Namespace: namespace, Name: name},
+	}); err != nil {
+		t.Fatalf("reconcile: %v", err)
+	}
+}
+
+func clusterWithSilenceFinalizer(name, namespace string, phase hyperfleetv1alpha1.ClusterPhase) *hyperfleetv1alpha1.Cluster {
+	return &hyperfleetv1alpha1.Cluster{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:       name,
+			Namespace:  namespace,
+			Finalizers: []string{silenceFinalizer},
+		},
+		Spec:   hyperfleetv1alpha1.ClusterSpec{DisplayName: name},
+		Status: hyperfleetv1alpha1.ClusterStatus{Phase: phase},
+	}
+}
 
 func TestSilenceReconcilerProvisioning(t *testing.T) {
 	t.Parallel()
@@ -39,30 +76,12 @@ func TestSilenceReconcilerProvisioning(t *testing.T) {
 		testNS      = "cluster-silence-test-id"
 	)
 
-	scheme := runtime.NewScheme()
-	if err := hyperfleetv1alpha1.AddToScheme(scheme); err != nil {
-		t.Fatalf("add scheme: %v", err)
-	}
-
-	cluster := &hyperfleetv1alpha1.Cluster{
-		ObjectMeta: metav1.ObjectMeta{Name: clusterName, Namespace: testNS},
-		Spec:       hyperfleetv1alpha1.ClusterSpec{DisplayName: clusterName},
-		Status:     hyperfleetv1alpha1.ClusterStatus{Phase: hyperfleetv1alpha1.ClusterPhaseProvisioning},
-	}
-
+	cluster := clusterWithSilenceFinalizer(clusterName, testNS, hyperfleetv1alpha1.ClusterPhaseProvisioning)
 	fakeSilence := silence.NewFakeClient()
-	reconciler := &SilenceReconciler{
-		Client:        fake.NewClientBuilder().WithScheme(scheme).WithObjects(cluster).WithStatusSubresource(cluster).Build(),
-		SilenceClient: fakeSilence,
-		Clock:         func() time.Time { return time.Date(2026, 8, 24, 12, 0, 0, 0, time.UTC) },
-	}
+	reconciler := newSilenceReconciler(t, cluster, fakeSilence, time.Date(2026, 8, 24, 12, 0, 0, 0, time.UTC))
 
 	ctx := context.Background()
-	if _, err := reconciler.Reconcile(ctx, reconcile.Request{
-		NamespacedName: types.NamespacedName{Namespace: testNS, Name: clusterName},
-	}); err != nil {
-		t.Fatalf("reconcile: %v", err)
-	}
+	reconcileCluster(t, reconciler, testNS, clusterName)
 
 	identity := silence.ClusterIdentity{Namespace: testNS, Name: clusterName}
 	silences, err := fakeSilence.List(ctx, identity)
@@ -80,6 +99,31 @@ func TestSilenceReconcilerProvisioning(t *testing.T) {
 	}
 }
 
+func TestSilenceReconcilerWaitingForPlacement(t *testing.T) {
+	t.Parallel()
+
+	const (
+		clusterName = "silence-wfp-cluster"
+		testNS      = "cluster-silence-wfp-id"
+	)
+
+	cluster := clusterWithSilenceFinalizer(clusterName, testNS, hyperfleetv1alpha1.ClusterPhaseWaitingForPlacement)
+	fakeSilence := silence.NewFakeClient()
+	reconciler := newSilenceReconciler(t, cluster, fakeSilence, time.Date(2026, 8, 24, 12, 0, 0, 0, time.UTC))
+
+	ctx := context.Background()
+	reconcileCluster(t, reconciler, testNS, clusterName)
+
+	identity := silence.ClusterIdentity{Namespace: testNS, Name: clusterName}
+	silences, err := fakeSilence.List(ctx, identity)
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(silences) != 1 || !silence.MatchesReason(silences[0], silence.ReasonInstalling) {
+		t.Fatalf("unexpected silences: %+v", silences)
+	}
+}
+
 func TestSilenceReconcilerReadyExpiresSilence(t *testing.T) {
 	t.Parallel()
 
@@ -88,23 +132,9 @@ func TestSilenceReconcilerReadyExpiresSilence(t *testing.T) {
 		testNS      = "cluster-silence-ready-id"
 	)
 
-	scheme := runtime.NewScheme()
-	if err := hyperfleetv1alpha1.AddToScheme(scheme); err != nil {
-		t.Fatalf("add scheme: %v", err)
-	}
-
-	cluster := &hyperfleetv1alpha1.Cluster{
-		ObjectMeta: metav1.ObjectMeta{Name: clusterName, Namespace: testNS},
-		Spec:       hyperfleetv1alpha1.ClusterSpec{DisplayName: clusterName},
-		Status:     hyperfleetv1alpha1.ClusterStatus{Phase: hyperfleetv1alpha1.ClusterPhaseReady},
-	}
-
+	cluster := clusterWithSilenceFinalizer(clusterName, testNS, hyperfleetv1alpha1.ClusterPhaseReady)
 	fakeSilence := silence.NewFakeClient()
-	reconciler := &SilenceReconciler{
-		Client:        fake.NewClientBuilder().WithScheme(scheme).WithObjects(cluster).WithStatusSubresource(cluster).Build(),
-		SilenceClient: fakeSilence,
-		Clock:         func() time.Time { return time.Date(2026, 8, 24, 12, 0, 0, 0, time.UTC) },
-	}
+	reconciler := newSilenceReconciler(t, cluster, fakeSilence, time.Date(2026, 8, 24, 12, 0, 0, 0, time.UTC))
 
 	ctx := context.Background()
 	identity := silence.ClusterIdentity{Namespace: testNS, Name: clusterName}
@@ -112,11 +142,7 @@ func TestSilenceReconcilerReadyExpiresSilence(t *testing.T) {
 		t.Fatalf("seed silence: %v", err)
 	}
 
-	if _, err := reconciler.Reconcile(ctx, reconcile.Request{
-		NamespacedName: types.NamespacedName{Namespace: testNS, Name: clusterName},
-	}); err != nil {
-		t.Fatalf("reconcile: %v", err)
-	}
+	reconcileCluster(t, reconciler, testNS, clusterName)
 
 	silences, err := fakeSilence.List(ctx, identity)
 	if err != nil {
@@ -135,36 +161,23 @@ func TestSilenceReconcilerDeleting(t *testing.T) {
 		testNS      = "cluster-silence-delete-id"
 	)
 
-	scheme := runtime.NewScheme()
-	if err := hyperfleetv1alpha1.AddToScheme(scheme); err != nil {
-		t.Fatalf("add scheme: %v", err)
-	}
-
 	now := metav1.Now()
 	cluster := &hyperfleetv1alpha1.Cluster{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:              clusterName,
 			Namespace:         testNS,
 			DeletionTimestamp: &now,
-			Finalizers:        []string{"hyperfleet.io/cluster"},
+			Finalizers:        []string{clusterFinalizer, silenceFinalizer},
 		},
 		Spec:   hyperfleetv1alpha1.ClusterSpec{DisplayName: clusterName},
 		Status: hyperfleetv1alpha1.ClusterStatus{Phase: hyperfleetv1alpha1.ClusterPhaseDeleting},
 	}
 
 	fakeSilence := silence.NewFakeClient()
-	reconciler := &SilenceReconciler{
-		Client:        fake.NewClientBuilder().WithScheme(scheme).WithObjects(cluster).WithStatusSubresource(cluster).Build(),
-		SilenceClient: fakeSilence,
-		Clock:         func() time.Time { return time.Date(2026, 8, 24, 12, 0, 0, 0, time.UTC) },
-	}
+	reconciler := newSilenceReconciler(t, cluster, fakeSilence, time.Date(2026, 8, 24, 12, 0, 0, 0, time.UTC))
 
 	ctx := context.Background()
-	if _, err := reconciler.Reconcile(ctx, reconcile.Request{
-		NamespacedName: types.NamespacedName{Namespace: testNS, Name: clusterName},
-	}); err != nil {
-		t.Fatalf("reconcile: %v", err)
-	}
+	reconcileCluster(t, reconciler, testNS, clusterName)
 
 	identity := silence.ClusterIdentity{Namespace: testNS, Name: clusterName}
 	silences, err := fakeSilence.List(ctx, identity)
@@ -179,5 +192,148 @@ func TestSilenceReconcilerDeleting(t *testing.T) {
 	}
 	if len(silences[0].Matchers) != 2 {
 		t.Fatalf("expected no install exemption, got %d matchers", len(silences[0].Matchers))
+	}
+}
+
+func TestSilenceReconcilerRenewal(t *testing.T) {
+	t.Parallel()
+
+	const (
+		clusterName = "silence-renew-cluster"
+		testNS      = "cluster-silence-renew-id"
+	)
+
+	now := time.Date(2026, 8, 24, 12, 0, 0, 0, time.UTC)
+	cluster := clusterWithSilenceFinalizer(clusterName, testNS, hyperfleetv1alpha1.ClusterPhaseProvisioning)
+	fakeSilence := silence.NewFakeClient()
+	reconciler := newSilenceReconciler(t, cluster, fakeSilence, now)
+
+	ctx := context.Background()
+	identity := silence.ClusterIdentity{Namespace: testNS, Name: clusterName}
+	oldID, err := fakeSilence.Create(ctx, silence.BuildPostableSilence(identity, silence.ReasonInstalling, now.Add(-5*time.Hour-time.Minute), silence.DefaultTTL))
+	if err != nil {
+		t.Fatalf("seed silence: %v", err)
+	}
+
+	reconcileCluster(t, reconciler, testNS, clusterName)
+
+	silences, err := fakeSilence.List(ctx, identity)
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(silences) != 1 {
+		t.Fatalf("expected 1 active silence after renewal, got %d", len(silences))
+	}
+	if silences[0].ID == oldID {
+		t.Fatalf("expected renewed silence ID, still have %s", oldID)
+	}
+}
+
+func TestSilenceReconcilerDuplicateCleanup(t *testing.T) {
+	t.Parallel()
+
+	const (
+		clusterName = "silence-dup-cluster"
+		testNS      = "cluster-silence-dup-id"
+	)
+
+	now := time.Date(2026, 8, 24, 12, 0, 0, 0, time.UTC)
+	cluster := clusterWithSilenceFinalizer(clusterName, testNS, hyperfleetv1alpha1.ClusterPhaseProvisioning)
+	fakeSilence := silence.NewFakeClient()
+	reconciler := newSilenceReconciler(t, cluster, fakeSilence, now)
+
+	ctx := context.Background()
+	identity := silence.ClusterIdentity{Namespace: testNS, Name: clusterName}
+	if _, err := fakeSilence.Create(ctx, silence.BuildPostableSilence(identity, silence.ReasonInstalling, now, silence.DefaultTTL)); err != nil {
+		t.Fatalf("seed silence 1: %v", err)
+	}
+	if _, err := fakeSilence.Create(ctx, silence.BuildPostableSilence(identity, silence.ReasonInstalling, now, silence.DefaultTTL)); err != nil {
+		t.Fatalf("seed silence 2: %v", err)
+	}
+
+	reconcileCluster(t, reconciler, testNS, clusterName)
+
+	silences, err := fakeSilence.List(ctx, identity)
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(silences) != 1 {
+		t.Fatalf("expected duplicate cleanup to leave 1 silence, got %d", len(silences))
+	}
+}
+
+func TestSilenceReconcilerDeletionCleanupRemovesFinalizer(t *testing.T) {
+	t.Parallel()
+
+	const (
+		clusterName = "silence-finalizer-cluster"
+		testNS      = "cluster-silence-finalizer-id"
+	)
+
+	deletedAt := metav1.Now()
+	cluster := &hyperfleetv1alpha1.Cluster{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:              clusterName,
+			Namespace:         testNS,
+			DeletionTimestamp: &deletedAt,
+			Finalizers:        []string{clusterFinalizer, silenceFinalizer},
+		},
+		Spec:   hyperfleetv1alpha1.ClusterSpec{DisplayName: clusterName},
+		Status: hyperfleetv1alpha1.ClusterStatus{Phase: hyperfleetv1alpha1.ClusterPhaseDeleting},
+	}
+
+	fakeSilence := silence.NewFakeClient()
+	reconciler := newSilenceReconciler(t, cluster, fakeSilence, time.Date(2026, 8, 24, 12, 0, 0, 0, time.UTC))
+
+	ctx := context.Background()
+	identity := silence.ClusterIdentity{Namespace: testNS, Name: clusterName}
+	reconcileCluster(t, reconciler, testNS, clusterName)
+
+	var updated hyperfleetv1alpha1.Cluster
+	if err := reconciler.Get(ctx, types.NamespacedName{Namespace: testNS, Name: clusterName}, &updated); err != nil {
+		t.Fatalf("get cluster: %v", err)
+	}
+	controllerutil.RemoveFinalizer(&updated, clusterFinalizer)
+	if err := reconciler.Update(ctx, &updated); err != nil {
+		t.Fatalf("update cluster: %v", err)
+	}
+
+	reconcileCluster(t, reconciler, testNS, clusterName)
+
+	silences, err := fakeSilence.List(ctx, identity)
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(silences) != 0 {
+		t.Fatalf("expected silences expired during deletion cleanup, got %d", len(silences))
+	}
+}
+
+func TestSilenceReconcilerAddsFinalizer(t *testing.T) {
+	t.Parallel()
+
+	const (
+		clusterName = "silence-add-finalizer-cluster"
+		testNS      = "cluster-silence-add-finalizer-id"
+	)
+
+	cluster := &hyperfleetv1alpha1.Cluster{
+		ObjectMeta: metav1.ObjectMeta{Name: clusterName, Namespace: testNS},
+		Spec:       hyperfleetv1alpha1.ClusterSpec{DisplayName: clusterName},
+		Status:     hyperfleetv1alpha1.ClusterStatus{Phase: hyperfleetv1alpha1.ClusterPhaseProvisioning},
+	}
+
+	fakeSilence := silence.NewFakeClient()
+	reconciler := newSilenceReconciler(t, cluster, fakeSilence, time.Date(2026, 8, 24, 12, 0, 0, 0, time.UTC))
+
+	ctx := context.Background()
+	reconcileCluster(t, reconciler, testNS, clusterName)
+
+	var updated hyperfleetv1alpha1.Cluster
+	if err := reconciler.Get(ctx, types.NamespacedName{Namespace: testNS, Name: clusterName}, &updated); err != nil {
+		t.Fatalf("get cluster: %v", err)
+	}
+	if !controllerutil.ContainsFinalizer(&updated, silenceFinalizer) {
+		t.Fatal("expected silence finalizer added")
 	}
 }

@@ -47,12 +47,14 @@ func BuildPostableSilence(identity ClusterIdentity, reason Reason, now time.Time
 		{Name: "name", Value: identity.Name, IsEqual: true},
 	}
 	if reason == ReasonInstalling {
-		matchers = append(matchers, Matcher{
-			Name:    "alertname",
-			Value:   InstallExemptAlert,
-			IsRegex: false,
-			IsEqual: false,
-		})
+		for _, alert := range InstallExemptAlerts {
+			matchers = append(matchers, Matcher{
+				Name:    "alertname",
+				Value:   alert,
+				IsRegex: false,
+				IsEqual: false,
+			})
+		}
 	}
 	return PostableSilence{
 		Matchers:  matchers,

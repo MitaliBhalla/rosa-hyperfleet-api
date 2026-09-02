@@ -64,7 +64,7 @@ func TestBuildPostableSilenceInstallExemption(t *testing.T) {
 		t.Fatalf("expected 3 matchers, got %d", len(install.Matchers))
 	}
 	exempt := install.Matchers[2]
-	if exempt.Name != "alertname" || exempt.Value != InstallExemptAlert || exempt.IsEqual {
+	if exempt.Name != "alertname" || exempt.Value != InstallExemptAlerts[0] || exempt.IsEqual {
 		t.Fatalf("unexpected install exemption matcher: %+v", exempt)
 	}
 

@@ -6,13 +6,13 @@ const (
 	// CreatedBy identifies silences managed by the hyperfleet-operator silence reconciler.
 	CreatedBy = "hyperfleet-silence-reconciler"
 
-	// InstallExemptAlert is not suppressed during cluster install.
-	InstallExemptAlert = "HCPInstallTimeout15m"
-
 	DefaultTTL      = 6 * time.Hour
 	RenewBefore     = 1 * time.Hour
 	RequeueInterval = 15 * time.Minute
 )
+
+// InstallExemptAlerts are not suppressed during cluster install.
+var InstallExemptAlerts = []string{"HCPInstallTimeout15m"}
 
 // Reason is a lifecycle-driven silence reason.
 type Reason string
