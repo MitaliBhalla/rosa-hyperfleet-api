@@ -10,6 +10,11 @@ baseDomain: ""
 oidcS3Bucket: ""
 oidcIssuerBaseUrl: ""
 
+# Optional regional Alertmanager base URL for lifecycle silence reconciliation.
+# When unset, the silence reconciler is not started.
+alertmanager:
+  url: ""
+
 postgres:
   secretName: postgres-dsn
   secretKey: dsn

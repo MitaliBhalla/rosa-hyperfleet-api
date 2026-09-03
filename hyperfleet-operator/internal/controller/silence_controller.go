@@ -64,7 +64,7 @@ func (r *SilenceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	identity := silence.IdentityFromCluster(&cluster)
 	intent := silence.IntentForCluster(&cluster)
 	if intent == nil && cluster.DeletionTimestamp.IsZero() && cluster.Status.Phase != hyperfleetv1alpha1.ClusterPhaseReady {
-		log.V(1).Info("no silence intent for cluster phase", "phase", cluster.Status.Phase, "cluster", cluster.Name)
+		log.V(1).Info("no silence intent for cluster phase", "phase", cluster.Status.Phase)
 	}
 
 	existing, err := r.SilenceClient.List(ctx, identity)
