@@ -132,7 +132,8 @@ func TestAlertmanagerClientCreateError(t *testing.T) {
 	t.Parallel()
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		http.Error(w, "boom", http.StatusInternalServerError)
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte("internal-hostname=secret.example.com"))
 	}))
 	defer server.Close()
 
@@ -144,6 +145,9 @@ func TestAlertmanagerClientCreateError(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "500") {
 		t.Fatalf("expected status in error, got %v", err)
+	}
+	if strings.Contains(err.Error(), "secret.example.com") {
+		t.Fatalf("error leaked response body: %v", err)
 	}
 }
 

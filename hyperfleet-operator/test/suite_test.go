@@ -44,6 +44,7 @@ const (
 	postgresImage      = "quay.io/sclorg/postgresql-16-c10s"
 	dynamoLocalImage   = "public.ecr.aws/aws-dynamodb-local/aws-dynamodb-local:latest"
 	alertmanagerImage  = "quay.io/prometheus/alertmanager:v0.28.1"
+	containerStartTimeout = 5 * time.Minute
 )
 
 var (
@@ -138,13 +139,12 @@ var _ = BeforeSuite(func() {
 
 	By("starting Alertmanager container")
 	amPort = freePort()
-	cmd = exec.Command(
-		containerTool, "run", "-d", "--rm",
+	out, err = runContainerCommand(containerTool, containerStartTimeout,
+		"run", "-d", "--rm",
 		"--name", amContainerName,
 		"-p", fmt.Sprintf("%s:9093", amPort),
 		alertmanagerImage,
 	)
-	out, err = cmd.CombinedOutput()
 	Expect(err).NotTo(HaveOccurred(), "start Alertmanager: %s", string(out))
 
 	amBaseURL = fmt.Sprintf("http://127.0.0.1:%s", amPort)
@@ -380,13 +380,13 @@ var _ = AfterSuite(func() {
 	}
 
 	By("stopping Postgres container")
-	_ = exec.Command(containerTool, "rm", "-f", pgContainerName).Run()
+	removeContainer(containerTool, pgContainerName)
 
 	By("stopping DynamoDB Local container")
-	_ = exec.Command(containerTool, "rm", "-f", ddbContainerName).Run()
+	removeContainer(containerTool, ddbContainerName)
 
 	By("stopping Alertmanager container")
-	_ = exec.Command(containerTool, "rm", "-f", amContainerName).Run()
+	removeContainer(containerTool, amContainerName)
 })
 
 func freePort() string {
@@ -395,6 +395,18 @@ func freePort() string {
 	port := l.Addr().(*net.TCPAddr).Port
 	_ = l.Close()
 	return fmt.Sprintf("%d", port)
+}
+
+func runContainerCommand(tool string, timeout time.Duration, args ...string) ([]byte, error) {
+	startCtx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	return exec.CommandContext(startCtx, append([]string{tool}, args...)...).CombinedOutput()
+}
+
+func removeContainer(tool, name string) {
+	if err := exec.Command(tool, "rm", "-f", name).Run(); err != nil {
+		_, _ = fmt.Fprintf(GinkgoWriter, "failed to remove container %s: %v\n", name, err)
+	}
 }
 
 func createTables(db *dynamodb.Client) {

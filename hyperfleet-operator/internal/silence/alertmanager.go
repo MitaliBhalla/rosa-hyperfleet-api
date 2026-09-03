@@ -37,11 +37,11 @@ func (c *AlertmanagerClient) List(ctx context.Context, identity ClusterIdentity)
 	}
 	resp, err := c.HTTPClient.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("list silences: %w", err)
+		return nil, fmt.Errorf("list silences: request failed")
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("list silences: %s", readErrorBody(resp))
+		return nil, fmt.Errorf("list silences: %s", readResponseStatus(resp))
 	}
 	var silences []GettableSilence
 	if err := json.NewDecoder(resp.Body).Decode(&silences); err != nil {
@@ -68,11 +68,11 @@ func (c *AlertmanagerClient) Create(ctx context.Context, silence PostableSilence
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := c.HTTPClient.Do(req)
 	if err != nil {
-		return "", fmt.Errorf("create silence: %w", err)
+		return "", fmt.Errorf("create silence: request failed")
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("create silence: %s", readErrorBody(resp))
+		return "", fmt.Errorf("create silence: %s", readResponseStatus(resp))
 	}
 	var out struct {
 		SilenceID string `json:"silenceID"`
@@ -93,19 +93,18 @@ func (c *AlertmanagerClient) Expire(ctx context.Context, id string) error {
 	}
 	resp, err := c.HTTPClient.Do(req)
 	if err != nil {
-		return fmt.Errorf("expire silence: %w", err)
+		return fmt.Errorf("expire silence: request failed")
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("expire silence: %s", readErrorBody(resp))
+		return fmt.Errorf("expire silence: %s", readResponseStatus(resp))
 	}
 	return nil
 }
 
-func readErrorBody(resp *http.Response) string {
-	b, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-	if len(b) == 0 {
-		return resp.Status
+func readResponseStatus(resp *http.Response) string {
+	if _, err := io.Copy(io.Discard, io.LimitReader(resp.Body, 4096)); err != nil {
+		return fmt.Sprintf("%s (read response body failed)", resp.Status)
 	}
-	return fmt.Sprintf("%s: %s", resp.Status, strings.TrimSpace(string(b)))
+	return resp.Status
 }

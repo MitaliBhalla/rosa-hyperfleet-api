@@ -69,14 +69,14 @@ func (r *SilenceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 
 	existing, err := r.SilenceClient.List(ctx, identity)
 	if err != nil {
-		log.Error(err, "failed to list silences", "cluster", cluster.Name)
+		log.Error(nil, "failed to list silences")
 		r.recordError()
 		return ctrl.Result{RequeueAfter: silenceAPIRetryDelay}, nil
 	}
 
 	if intent == nil {
 		if err := r.expireAll(ctx, existing); err != nil {
-			log.Error(err, "failed to expire silences", "cluster", cluster.Name)
+			log.Error(nil, "failed to expire silences")
 			r.recordError()
 			return ctrl.Result{RequeueAfter: silenceAPIRetryDelay}, nil
 		}
@@ -89,12 +89,12 @@ func (r *SilenceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		// Create the replacement first so alerts stay suppressed if expire fails on the old silence.
 		if silence.NeedsRenewal(matched, now) {
 			if _, err := r.createSilence(ctx, identity, intent.Reason, now); err != nil {
-				log.Error(err, "failed to renew silence", "cluster", cluster.Name)
+				log.Error(nil, "failed to renew silence")
 				r.recordError()
 				return ctrl.Result{RequeueAfter: silenceAPIRetryDelay}, nil
 			}
 			if err := r.SilenceClient.Expire(ctx, matched.ID); err != nil {
-				log.Error(err, "failed to expire old silence after renewal", "cluster", cluster.Name, "silenceID", matched.ID)
+				log.Error(nil, "failed to expire old silence after renewal")
 				r.recordError()
 				return ctrl.Result{RequeueAfter: silenceAPIRetryDelay}, nil
 			}
@@ -103,12 +103,12 @@ func (r *SilenceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	}
 
 	if err := r.expireAll(ctx, existing); err != nil {
-		log.Error(err, "failed to expire silences while converging desired state", "cluster", cluster.Name)
+		log.Error(nil, "failed to expire silences while converging desired state")
 		r.recordError()
 		return ctrl.Result{RequeueAfter: silenceAPIRetryDelay}, nil
 	}
 	if _, err := r.createSilence(ctx, identity, intent.Reason, now); err != nil {
-		log.Error(err, "failed to create silence", "cluster", cluster.Name)
+		log.Error(nil, "failed to create silence")
 		r.recordError()
 		return ctrl.Result{RequeueAfter: silenceAPIRetryDelay}, nil
 	}
