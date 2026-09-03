@@ -11,6 +11,35 @@ import (
 	"time"
 )
 
+func TestAlertmanagerClientListFilter(t *testing.T) {
+	t.Parallel()
+
+	var gotFilter []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet && r.URL.Path == "/api/v2/silences" {
+			gotFilter = r.URL.Query()["filter"]
+			if err := json.NewEncoder(w).Encode([]GettableSilence{}); err != nil {
+				t.Errorf("encode list response: %v", err)
+			}
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer server.Close()
+
+	client := NewAlertmanagerClient(server.URL, server.Client())
+	identity := ClusterIdentity{Namespace: "cluster-1", Name: "c1"}
+	if _, err := client.List(context.Background(), identity); err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(gotFilter) != 2 {
+		t.Fatalf("expected 2 filter params, got %v", gotFilter)
+	}
+	if gotFilter[0] != `namespace="cluster-1"` || gotFilter[1] != `name="c1"` {
+		t.Fatalf("unexpected filters: %v", gotFilter)
+	}
+}
+
 func TestAlertmanagerClientRoundTrip(t *testing.T) {
 	t.Parallel()
 

@@ -27,8 +27,10 @@ func NewAlertmanagerClient(baseURL string, httpClient *http.Client) *Alertmanage
 }
 
 func (c *AlertmanagerClient) List(ctx context.Context, identity ClusterIdentity) ([]GettableSilence, error) {
-	filter := fmt.Sprintf(`{namespace=%q,name=%q}`, identity.Namespace, identity.Name)
-	endpoint := c.BaseURL + "/api/v2/silences?filter=" + url.QueryEscape(filter)
+	values := url.Values{}
+	values.Add("filter", fmt.Sprintf(`namespace=%q`, identity.Namespace))
+	values.Add("filter", fmt.Sprintf(`name=%q`, identity.Name))
+	endpoint := c.BaseURL + "/api/v2/silences?" + values.Encode()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 	if err != nil {
 		return nil, fmt.Errorf("build list request: %w", err)
