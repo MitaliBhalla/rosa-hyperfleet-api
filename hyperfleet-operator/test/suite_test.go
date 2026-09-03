@@ -400,7 +400,7 @@ func freePort() string {
 func runContainerCommand(tool string, timeout time.Duration, args ...string) ([]byte, error) {
 	startCtx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
-	return exec.CommandContext(startCtx, append([]string{tool}, args...)...).CombinedOutput()
+	return exec.CommandContext(startCtx, tool, args...).CombinedOutput()
 }
 
 func removeContainer(tool, name string) {
