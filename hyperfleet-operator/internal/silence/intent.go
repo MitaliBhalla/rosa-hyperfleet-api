@@ -15,6 +15,8 @@ type Intent struct {
 
 // IntentForCluster maps cluster lifecycle phase to silence intent.
 // Installing maps to WaitingForPlacement and Provisioning; uninstalling maps to Deleting.
+// limited_support and maintenance are deferred until per-state exemption policies land
+// (see rosa-hyperfleet docs/design/lifecycle-alert-silencing.md).
 func IntentForCluster(cluster *hyperfleetv1alpha1.Cluster) *Intent {
 	if cluster == nil {
 		return nil

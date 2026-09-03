@@ -29,6 +29,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	hyperfleetv1alpha1 "github.com/openshift-online/rosa-hyperfleet-api/api/v1alpha1"
+	"github.com/openshift-online/rosa-hyperfleet-api/hyperfleet-operator/internal/metrics"
 	"github.com/openshift-online/rosa-hyperfleet-api/hyperfleet-operator/internal/silence"
 )
 
@@ -40,6 +41,7 @@ const silenceAPIRetryDelay = time.Minute
 type SilenceReconciler struct {
 	client.Client
 	SilenceClient           silence.Client
+	Metrics                 *metrics.SilenceMetrics
 	Clock                   func() time.Time
 	MaxConcurrentReconciles int
 }
@@ -81,12 +83,14 @@ func (r *SilenceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	existing, err := r.SilenceClient.List(ctx, identity)
 	if err != nil {
 		log.Error(err, "failed to list silences", "cluster", cluster.Name)
+		r.recordError()
 		return ctrl.Result{RequeueAfter: silenceAPIRetryDelay}, nil
 	}
 
 	if !cluster.DeletionTimestamp.IsZero() && !controllerutil.ContainsFinalizer(&cluster, clusterFinalizer) {
 		if err := r.expireAll(ctx, existing); err != nil {
 			log.Error(err, "failed to expire silences during cluster deletion cleanup", "cluster", cluster.Name)
+			r.recordError()
 			return ctrl.Result{RequeueAfter: silenceAPIRetryDelay}, nil
 		}
 		if err := r.removeSilenceFinalizer(ctx, &cluster); err != nil {
@@ -98,33 +102,26 @@ func (r *SilenceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	if intent == nil {
 		if err := r.expireAll(ctx, existing); err != nil {
 			log.Error(err, "failed to expire silences", "cluster", cluster.Name)
+			r.recordError()
 			return ctrl.Result{RequeueAfter: silenceAPIRetryDelay}, nil
 		}
 		return ctrl.Result{}, nil
 	}
 
-	var matched *silence.GettableSilence
-	for i := range existing {
-		s := existing[i]
-		if silence.MatchesReason(s, intent.Reason) {
-			if matched == nil {
-				kept := s
-				matched = &kept
-				continue
-			}
-		}
-	}
-
-	if matched != nil && len(existing) == 1 {
+	if len(existing) == 1 && silence.MatchesReason(existing[0], intent.Reason) {
+		matched := existing[0]
 		// Observatorium requires silence replacement when renewing; can't update in place like pure Alertmanager.
 		// Create the replacement first so alerts stay suppressed if expire fails on the old silence.
-		if silence.NeedsRenewal(*matched, now) {
+		if silence.NeedsRenewal(matched, now) {
 			if _, err := r.createSilence(ctx, identity, intent.Reason, now); err != nil {
 				log.Error(err, "failed to renew silence", "cluster", cluster.Name)
+				r.recordError()
 				return ctrl.Result{RequeueAfter: silenceAPIRetryDelay}, nil
 			}
 			if err := r.SilenceClient.Expire(ctx, matched.ID); err != nil {
 				log.Error(err, "failed to expire old silence after renewal", "cluster", cluster.Name, "silenceID", matched.ID)
+				r.recordError()
+				return ctrl.Result{RequeueAfter: silenceAPIRetryDelay}, nil
 			}
 		}
 		return ctrl.Result{RequeueAfter: silence.RequeueInterval}, nil
@@ -132,13 +129,21 @@ func (r *SilenceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 
 	if err := r.expireAll(ctx, existing); err != nil {
 		log.Error(err, "failed to expire silences while converging desired state", "cluster", cluster.Name)
+		r.recordError()
 		return ctrl.Result{RequeueAfter: silenceAPIRetryDelay}, nil
 	}
 	if _, err := r.createSilence(ctx, identity, intent.Reason, now); err != nil {
 		log.Error(err, "failed to create silence", "cluster", cluster.Name)
+		r.recordError()
 		return ctrl.Result{RequeueAfter: silenceAPIRetryDelay}, nil
 	}
 	return ctrl.Result{RequeueAfter: silence.RequeueInterval}, nil
+}
+
+func (r *SilenceReconciler) recordError() {
+	if r.Metrics != nil {
+		r.Metrics.ReconcileErrorsTotal.Inc()
+	}
 }
 
 func (r *SilenceReconciler) createSilence(ctx context.Context, identity silence.ClusterIdentity, reason silence.Reason, now time.Time) (string, error) {

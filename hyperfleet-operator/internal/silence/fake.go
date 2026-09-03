@@ -11,8 +11,9 @@ import (
 
 // FakeClient is an in-memory Client for tests.
 type FakeClient struct {
-	mu       sync.Mutex
-	silences map[string]GettableSilence
+	mu         sync.Mutex
+	silences   map[string]GettableSilence
+	ExpireHook func(id string) error
 }
 
 func NewFakeClient() *FakeClient {
@@ -55,6 +56,11 @@ func (f *FakeClient) Create(_ context.Context, silence PostableSilence) (string,
 func (f *FakeClient) Expire(_ context.Context, id string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if f.ExpireHook != nil {
+		if err := f.ExpireHook(id); err != nil {
+			return err
+		}
+	}
 	s, ok := f.silences[id]
 	if !ok {
 		return fmt.Errorf("silence %q not found", id)

@@ -18,6 +18,7 @@ package controller
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -306,6 +307,53 @@ func TestSilenceReconcilerDeletionCleanupRemovesFinalizer(t *testing.T) {
 	}
 	if len(silences) != 0 {
 		t.Fatalf("expected silences expired during deletion cleanup, got %d", len(silences))
+	}
+}
+
+func TestSilenceReconcilerRenewalExpireFailureRequeues(t *testing.T) {
+	t.Parallel()
+
+	const (
+		clusterName = "silence-renew-expire-cluster"
+		testNS      = "cluster-silence-renew-expire-id"
+	)
+
+	now := time.Date(2026, 8, 24, 12, 0, 0, 0, time.UTC)
+	cluster := clusterWithSilenceFinalizer(clusterName, testNS, hyperfleetv1alpha1.ClusterPhaseProvisioning)
+	fakeSilence := silence.NewFakeClient()
+	oldID, err := fakeSilence.Create(context.Background(), silence.BuildPostableSilence(
+		silence.ClusterIdentity{Namespace: testNS, Name: clusterName},
+		silence.ReasonInstalling,
+		now.Add(-5*time.Hour-time.Minute),
+		silence.DefaultTTL,
+	))
+	if err != nil {
+		t.Fatalf("seed silence: %v", err)
+	}
+	fakeSilence.ExpireHook = func(id string) error {
+		if id == oldID {
+			return fmt.Errorf("expire failed")
+		}
+		return nil
+	}
+
+	reconciler := newSilenceReconciler(t, cluster, fakeSilence, now)
+	result, err := reconciler.Reconcile(context.Background(), reconcile.Request{
+		NamespacedName: types.NamespacedName{Namespace: testNS, Name: clusterName},
+	})
+	if err != nil {
+		t.Fatalf("reconcile: %v", err)
+	}
+	if result.RequeueAfter != time.Minute {
+		t.Fatalf("expected 1m requeue after expire failure, got %s", result.RequeueAfter)
+	}
+
+	silences, err := fakeSilence.List(context.Background(), silence.ClusterIdentity{Namespace: testNS, Name: clusterName})
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(silences) != 2 {
+		t.Fatalf("expected replacement silence to remain while old expire retries, got %d", len(silences))
 	}
 }
 
